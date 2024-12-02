@@ -9,11 +9,11 @@ from samba.param import LoadParm
 from samba.samdb import SamDB
 
 # Configuration
-SERVICE_ACCOUNT = ""
-PASSWORD = ""
-DOMAIN = ""
-SERVER = ""
-BASE_DN = ""
+SERVICE_ACCOUNT = "slurm-sync"
+PASSWORD = "-pass4Slurm-"
+DOMAIN = "grit.ucsb.edu"
+SERVER = "dc1.grit.ucsb.edu"
+BASE_DN = "ou=GRIT Users,dc=grit,dc=ucsb,dc=edu"
 
 def connect_to_ad(service_account, password, domain, server):
     """Connect to AD using Samba Python bindings."""
@@ -83,14 +83,20 @@ def slurm_user_exists(username):
         return False
 
 def slurm_user_in_group(username, group_name):
-    """Check if a user is already associated with a Slurm group."""
+    """Check if a user's DefaultAccount is already set to the specified group."""
     try:
         result = subprocess.run(
-            ["sacctmgr", "list", "user", username, "format=Account"],
+            ["sacctmgr", "list", "user", username, "format=DefaultAccount", "--parsable2"],
             stdout=subprocess.PIPE,
             text=True
         )
-        return group_name in result.stdout
+        output = result.stdout
+        print(f"Checking if user '{username}' is in group '{group_name}'. Command output:\n{output}")
+        # Parse the output to check if DefaultAccount matches the group_name
+        for line in output.splitlines():
+            if group_name == line.strip():
+                return True
+        return False
     except subprocess.CalledProcessError as e:
         print(f"Error checking Slurm user-group association: {e}")
         return False
@@ -135,7 +141,7 @@ def add_to_slurmdbd(group_name, members, dry_run, samdb):
                             print(f"[DRY RUN] Would associate user {username} with group {group_name}.")
                         else:
                             subprocess.run(
-                                ["sacctmgr", "-i", "modify", "user", username, "set", "account=" + group_name],
+                                ["sacctmgr", "-i", "modify", "user", "where", f"name={username}", "set", f"DefaultAccount={group_name}"],
                                 check=True
                             )
                             print(f"Associated user {username} with group {group_name}.")
